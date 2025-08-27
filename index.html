@@ -583,6 +583,70 @@
             // Production cadence adapts automatically via event scheduler; no per-star updates needed here
             window.addEventListener('resize', resetSimulation);
 
+            // --- Click-to-edit numeric displays ---
+            function enableEditableValue(displayEl, sliderEl, options = {}) {
+                const suffix = options.suffix || '';
+                let previousText = '';
+                function startEdit() {
+                    previousText = displayEl.textContent;
+                    displayEl.contentEditable = 'true';
+                    displayEl.classList.add('bg-gray-700', 'rounded', 'px-1', 'outline-none', 'ring-1', 'ring-indigo-500');
+                    let raw = previousText.trim();
+                    if (suffix && raw.endsWith(suffix)) raw = raw.slice(0, -suffix.length);
+                    displayEl.textContent = raw;
+                    const selection = window.getSelection();
+                    const range = document.createRange();
+                    range.selectNodeContents(displayEl);
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                    displayEl.focus();
+                }
+
+                function commitEdit() {
+                    const raw = displayEl.textContent.trim().replace(/,/g, '');
+                    let numeric = parseFloat(raw);
+                    if (Number.isNaN(numeric)) { cancelEdit(); return; }
+                    const min = sliderEl.min !== '' ? parseFloat(sliderEl.min) : -Infinity;
+                    const max = sliderEl.max !== '' ? parseFloat(sliderEl.max) : Infinity;
+                    const step = sliderEl.step ? parseFloat(sliderEl.step) : 1;
+                    if (step > 0) {
+                        numeric = Math.round(numeric / step) * step;
+                    }
+                    numeric = Math.min(max, Math.max(min, numeric));
+                    if (Number.isInteger(step)) numeric = Math.round(numeric);
+                    sliderEl.value = String(numeric);
+                    displayEl.textContent = suffix ? `${numeric}${suffix}` : `${numeric}`;
+                    displayEl.contentEditable = 'false';
+                    displayEl.classList.remove('bg-gray-700', 'px-1', 'ring-1', 'ring-indigo-500');
+                    if (typeof options.onChange === 'function') options.onChange(numeric);
+                }
+
+                function cancelEdit() {
+                    displayEl.textContent = previousText;
+                    displayEl.contentEditable = 'false';
+                    displayEl.classList.remove('bg-gray-700', 'px-1', 'ring-1', 'ring-indigo-500');
+                }
+
+                displayEl.classList.add('cursor-text');
+                displayEl.title = 'Click to edit';
+                displayEl.addEventListener('click', () => {
+                    if (displayEl.isContentEditable) return;
+                    startEdit();
+                });
+                displayEl.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+                });
+                displayEl.addEventListener('blur', () => {
+                    if (displayEl.isContentEditable) commitEdit();
+                });
+            }
+
+            enableEditableValue(starValue, starSlider, { onChange: () => { starValue.textContent = starSlider.value; resetSimulation(); } });
+            enableEditableValue(speedValue, speedSlider, { suffix: '%', onChange: (v) => { speedValue.textContent = `${v}%`; } });
+            enableEditableValue(replicationValue, replicationSlider, { onChange: (v) => { replicationValue.textContent = `${v}`; } });
+            enableEditableValue(expirationValue, expirationSlider, { suffix: '%', onChange: (v) => { expirationValue.textContent = `${v}%`; } });
+
             // --- Initial Call ---
             setupChart();
             resetSimulation();
