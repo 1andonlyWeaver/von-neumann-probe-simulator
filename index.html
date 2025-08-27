@@ -80,6 +80,14 @@
                                 <span id="expirationValue" class="font-mono text-indigo-400 w-20 text-center">5%</span>
                             </div>
                         </div>
+                        <!-- Initial Colonizers Control -->
+                        <div>
+                            <label for="colonizerSlider" class="block mb-2 text-sm font-medium">Initial Colonizers</label>
+                            <div class="flex items-center gap-4">
+                                <input id="colonizerSlider" type="range" min="1" max="20" step="1" value="1" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="colonizerValue" class="font-mono text-indigo-400 w-12 text-center">1</span>
+                            </div>
+                        </div>
                         <!-- Continuous Production Toggle -->
                         <div class="flex items-center justify-between">
                             <label for="continuousProduction" class="text-sm font-medium">Continuous Production</label>
@@ -154,6 +162,8 @@
             const replicationValue = document.getElementById('replicationValue');
             const expirationSlider = document.getElementById('expirationSlider');
             const expirationValue = document.getElementById('expirationValue');
+            const colonizerSlider = document.getElementById('colonizerSlider');
+            const colonizerValue = document.getElementById('colonizerValue');
             const continuousProduction = document.getElementById('continuousProduction');
             const startPauseBtn = document.getElementById('startPauseBtn');
             const resetBtn = document.getElementById('resetBtn');
@@ -180,6 +190,7 @@
             let simulationRunning = false;
             let animationFrameId;
             let visitedCount = 0;
+            let colonizerColors = [];
             
             // --- Chart State ---
             let progressChart;
@@ -208,6 +219,15 @@
                 if (years < 1000000) return `${(years / 1000).toFixed(1)}k`;
                 return `${(years / 1000000).toFixed(2)}M`;
             };
+            
+            function generateColonizerPalette(n) {
+                const colors = [];
+                for (let i = 0; i < n; i++) {
+                    const hue = Math.round((360 * i) / Math.max(1, n));
+                    colors.push(`hsl(${hue}, 70%, 60%)`);
+                }
+                return colors;
+            }
             
             // --- Charting ---
             function setupChart() {
@@ -378,7 +398,7 @@
                         if (continuousProduction && continuousProduction.checked) {
                             const hasUnclaimedTarget = findClosestUnclaimedStar(item.star.x, item.star.y);
                             if (hasUnclaimedTarget) {
-                                probes.push(new Probe(item.star.x, item.star.y));
+                                probes.push(new Probe(item.star.x, item.star.y, item.star.colonizerId));
                             }
                         }
                         productionQueue.push({ star: item.star, time: timeElapsed + period });
@@ -388,10 +408,10 @@
             }
 
             class Probe {
-                constructor(x, y) {
+                constructor(x, y, colonizerId = null) {
                     this.x = x; this.y = y; this.status = 'seeking';
                     this.targetStar = null; this.replicationTimer = 0;
-                    this.isDecommissioned = false; this.findNewTarget();
+                    this.isDecommissioned = false; this.colonizerId = colonizerId; this.findNewTarget();
                 }
 
                 findNewTarget() {
@@ -430,11 +450,17 @@
                             this.x = targetX; this.y = targetY;
                             if (!this.targetStar.visited) {
                                 this.targetStar.visited = true;
+                                // track which colonizer visited this star first
+                                if (this.colonizerId == null) {
+                                    // Assign unassigned probes to their own origin bucket if needed
+                                    this.colonizerId = 0;
+                                }
+                                this.targetStar.colonizerId = this.colonizerId;
                                 visitedCount++;
                                 // Draw visited star once onto overlay
                                 visitedCtx.beginPath();
                                 visitedCtx.arc(this.targetStar.x, this.targetStar.y, this.targetStar.radius, 0, 2 * Math.PI);
-                                visitedCtx.fillStyle = '#4f46e5';
+                                visitedCtx.fillStyle = colonizerColors[this.colonizerId % colonizerColors.length] || '#4f46e5';
                                 visitedCtx.fill();
                                 // Schedule production for this colonized star
                                 scheduleNextProductionForStar(this.targetStar);
@@ -449,7 +475,7 @@
                     } else if (this.status === 'replicating') {
                         this.replicationTimer -= TIME_STEP_YEARS;
                         if (this.replicationTimer <= 0) {
-                            probes.push(new Probe(this.x, this.y));
+                            probes.push(new Probe(this.x, this.y, this.colonizerId));
                             this.findNewTarget();
                         }
                     }
@@ -480,7 +506,7 @@
                 probes.forEach(probe => {
                     ctx.beginPath();
                     ctx.arc(probe.x, probe.y, 3, 0, 2 * Math.PI);
-                    ctx.fillStyle = '#4f46e5';
+                    ctx.fillStyle = colonizerColors[probe.colonizerId % colonizerColors.length] || '#4f46e5';
                     ctx.fill();
                     ctx.strokeStyle = '#a5b4fc';
                     ctx.lineWidth = 1;
@@ -546,16 +572,30 @@
                 drawStaticStarfield(); // Pre-render the background and clear visited overlay
                 
                 if (stars.length > 0) {
-                    const firstStar = stars[Math.floor(stars.length / 2)];
-                    firstStar.visited = true;
-                    visitedCount = 1;
-                    // Draw first visited star onto overlay and schedule
-                    visitedCtx.beginPath();
-                    visitedCtx.arc(firstStar.x, firstStar.y, firstStar.radius, 0, 2 * Math.PI);
-                    visitedCtx.fillStyle = '#4f46e5';
-                    visitedCtx.fill();
-                    if (typeof scheduleNextProductionForStar !== 'undefined') scheduleNextProductionForStar(firstStar);
-                    probes.push(new Probe(firstStar.x, firstStar.y));
+                    const numColonizers = Math.max(1, Math.min(parseInt(colonizerSlider.value), stars.length));
+                    colonizerColors = generateColonizerPalette(numColonizers);
+                    const chosen = new Set();
+                    while (chosen.size < numColonizers) {
+                        const idx = Math.floor(Math.random() * stars.length);
+                        chosen.add(idx);
+                    }
+                    let cid = 0;
+                    chosen.forEach((idx) => {
+                        const s = stars[idx];
+                        if (!s.visited) {
+                            s.visited = true;
+                            s.colonizerId = cid;
+                            visitedCount++;
+                            // Draw visited star onto overlay and schedule
+                            visitedCtx.beginPath();
+                            visitedCtx.arc(s.x, s.y, s.radius, 0, 2 * Math.PI);
+                            visitedCtx.fillStyle = colonizerColors[cid % colonizerColors.length] || '#4f46e5';
+                            visitedCtx.fill();
+                            if (typeof scheduleNextProductionForStar !== 'undefined') scheduleNextProductionForStar(s);
+                            probes.push(new Probe(s.x, s.y, cid));
+                        }
+                        cid++;
+                    });
                 }
 
                 draw();
@@ -575,6 +615,10 @@
             resetBtn.addEventListener('click', resetSimulation);
             starSlider.addEventListener('input', (e) => {
                 starValue.textContent = e.target.value;
+                resetSimulation();
+            });
+            colonizerSlider.addEventListener('input', (e) => {
+                colonizerValue.textContent = e.target.value;
                 resetSimulation();
             });
             speedSlider.addEventListener('input', (e) => { speedValue.textContent = `${e.target.value}%`; });
@@ -643,6 +687,7 @@
             }
 
             enableEditableValue(starValue, starSlider, { onChange: () => { starValue.textContent = starSlider.value; resetSimulation(); } });
+            enableEditableValue(colonizerValue, colonizerSlider, { onChange: (v) => { colonizerValue.textContent = `${v}`; resetSimulation(); } });
             enableEditableValue(speedValue, speedSlider, { suffix: '%', onChange: (v) => { speedValue.textContent = `${v}%`; } });
             enableEditableValue(replicationValue, replicationSlider, { onChange: (v) => { replicationValue.textContent = `${v}`; } });
             enableEditableValue(expirationValue, expirationSlider, { suffix: '%', onChange: (v) => { expirationValue.textContent = `${v}%`; } });
