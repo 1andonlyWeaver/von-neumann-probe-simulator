@@ -52,7 +52,7 @@
                         <div>
                             <label for="starSlider" class="block mb-2 text-sm font-medium">Number of Stars</label>
                             <div class="flex items-center gap-4">
-                                <input id="starSlider" type="range" min="100" max="10000" step="100" value="500" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <input id="starSlider" type="range" min="100" max="100000" step="100" value="500" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
                                 <span id="starValue" class="font-mono text-indigo-400 w-20 text-center">500</span>
                             </div>
                         </div>
@@ -142,6 +142,8 @@
             // --- Performance Optimization ---
             const offscreenCanvas = document.createElement('canvas');
             const offscreenCtx = offscreenCanvas.getContext('2d');
+            const visitedCanvas = document.createElement('canvas');
+            const visitedCtx = visitedCanvas.getContext('2d');
             
             // --- DOM Element References ---
             const starSlider = document.getElementById('starSlider');
@@ -177,6 +179,7 @@
             let probesLost = 0;
             let simulationRunning = false;
             let animationFrameId;
+            let visitedCount = 0;
             
             // --- Chart State ---
             let progressChart;
@@ -195,6 +198,8 @@
                 canvas.height = size;
                 offscreenCanvas.width = size;
                 offscreenCanvas.height = size;
+                visitedCanvas.width = size;
+                visitedCanvas.height = size;
                 draw();
             };
 
@@ -240,7 +245,6 @@
             
             function updateChart() {
                 if (!progressChart) return;
-                const visitedCount = stars.filter(s => s.visited).length;
                 chartData.labels.push(formatYears(timeElapsed));
                 chartData.activeProbes.push(probes.length);
                 chartData.starsVisited.push(visitedCount);
@@ -249,6 +253,27 @@
             }
 
             // --- Simulation Core ---
+            // Spatial grid for faster nearest-neighbor lookup
+            let gridCellSize = 16;
+            let gridCols = 0;
+            let gridRows = 0;
+            let gridBuckets = [];
+
+            function initGrid() {
+                const approxSpacing = Math.max(4, canvas.width / Math.sqrt(Math.max(1, numStars)));
+                gridCellSize = Math.max(8, Math.floor(approxSpacing));
+                gridCols = Math.max(1, Math.ceil(canvas.width / gridCellSize));
+                gridRows = Math.max(1, Math.ceil(canvas.height / gridCellSize));
+                gridBuckets = new Array(gridCols * gridRows);
+                for (let i = 0; i < gridBuckets.length; i++) gridBuckets[i] = [];
+            }
+
+            function bucketIndexForXY(x, y) {
+                const col = Math.min(gridCols - 1, Math.max(0, Math.floor(x / gridCellSize)));
+                const row = Math.min(gridRows - 1, Math.max(0, Math.floor(y / gridCellSize)));
+                return row * gridCols + col;
+            }
+
             function createStars() {
                 stars = [];
                 numStars = parseInt(starSlider.value);
@@ -256,32 +281,107 @@
                 const totalGalaxyArea = numStars * areaPerStar;
                 galaxyDiameterLY = Math.sqrt(4 * totalGalaxyArea / Math.PI);
 
+                initGrid();
                 for (let i = 0; i < numStars; i++) {
                     const r = Math.random() * Math.random() * (canvas.width / 2);
                     const angle = Math.random() * 2 * Math.PI;
+                    const x = canvas.width / 2 + r * Math.cos(angle);
+                    const y = canvas.height / 2 + r * Math.sin(angle);
                     stars.push({
-                        x: canvas.width / 2 + r * Math.cos(angle),
-                        y: canvas.height / 2 + r * Math.sin(angle),
+                        x,
+                        y,
                         visited: false, claimed: false,
                         radius: Math.random() * 1.5 + 0.5,
                         productionTimer: 0
                     });
+                    gridBuckets[bucketIndexForXY(x, y)].push(i);
                 }
             }
 
             function findClosestUnclaimedStar(x, y) {
-                let closestStar = null;
-                let minDistance = Infinity;
-                for (const star of stars) {
-                    if (!star.visited && !star.claimed) {
-                        const distance = Math.hypot(star.x - x, star.y - y);
-                        if (distance < minDistance) {
-                            minDistance = distance;
-                            closestStar = star;
+                const startCol = Math.min(gridCols - 1, Math.max(0, Math.floor(x / gridCellSize)));
+                const startRow = Math.min(gridRows - 1, Math.max(0, Math.floor(y / gridCellSize)));
+                let foundIndex = -1;
+                let bestDistSq = Infinity;
+                const maxRadius = Math.max(gridCols, gridRows);
+
+                for (let radius = 0; radius <= maxRadius; radius++) {
+                    let anyInRing = false;
+                    const minCol = Math.max(0, startCol - radius);
+                    const maxCol = Math.min(gridCols - 1, startCol + radius);
+                    const minRow = Math.max(0, startRow - radius);
+                    const maxRow = Math.min(gridRows - 1, startRow + radius);
+
+                    for (let row = minRow; row <= maxRow; row++) {
+                        for (let col = minCol; col <= maxCol; col++) {
+                            if (radius > 0 && row > minRow && row < maxRow && col > minCol && col < maxCol) continue;
+                            const bucket = gridBuckets[row * gridCols + col];
+                            if (bucket.length === 0) continue;
+                            anyInRing = true;
+                            for (let k = 0; k < bucket.length; k++) {
+                                const idx = bucket[k];
+                                const star = stars[idx];
+                                if (star.visited || star.claimed) continue;
+                                const dx = star.x - x;
+                                const dy = star.y - y;
+                                const d2 = dx * dx + dy * dy;
+                                if (d2 < bestDistSq) {
+                                    bestDistSq = d2;
+                                    foundIndex = idx;
+                                }
+                            }
                         }
                     }
+                    if (foundIndex !== -1 || !anyInRing) break;
                 }
-                return closestStar;
+                return foundIndex === -1 ? null : stars[foundIndex];
+            }
+
+            // Event-driven production scheduler
+            class MinHeap {
+                constructor(compare) { this.compare = compare; this.items = []; }
+                peek() { return this.items.length ? this.items[0] : null; }
+                push(item) { this.items.push(item); this.#up(this.items.length - 1); }
+                pop() {
+                    if (!this.items.length) return null;
+                    const top = this.items[0];
+                    const end = this.items.pop();
+                    if (this.items.length) { this.items[0] = end; this.#down(0); }
+                    return top;
+                }
+                #up(i) {
+                    const a = this.items; const x = a[i];
+                    while (i > 0) { const p = (i - 1) >> 1; const y = a[p]; if (this.compare(x, y) >= 0) break; a[i] = y; a[p] = x; i = p; }
+                }
+                #down(i) {
+                    const a = this.items; const n = a.length; const x = a[i];
+                    for (;;) {
+                        let l = i * 2 + 1, r = i * 2 + 2, s = i;
+                        if (l < n && this.compare(a[l], a[s]) < 0) s = l;
+                        if (r < n && this.compare(a[r], a[s]) < 0) s = r;
+                        if (s === i) break; a[i] = a[s]; a[s] = x; i = s;
+                    }
+                }
+            }
+
+            const productionQueue = new MinHeap((a, b) => a.time - b.time);
+            function scheduleNextProductionForStar(star) {
+                const period = parseInt(replicationSlider.value);
+                productionQueue.push({ star, time: timeElapsed + period });
+            }
+            function processProductionEvents() {
+                const period = parseInt(replicationSlider.value);
+                let item = productionQueue.peek();
+                while (item && item.time <= timeElapsed) {
+                    productionQueue.pop();
+                    if (item.star.visited) {
+                        if (continuousProduction && continuousProduction.checked) {
+                            probes.push(new Probe(item.star.x, item.star.y));
+                        }
+                        productionQueue.push({ star: item.star, time: timeElapsed + period });
+                    }
+                    item = productionQueue.peek();
+                }
             }
 
             class Probe {
@@ -325,13 +425,19 @@
 
                         if (distanceToTarget <= travelPixelsPerStep) {
                             this.x = targetX; this.y = targetY;
-                            if (!this.targetStar.visited) this.targetStar.visited = true;
+                            if (!this.targetStar.visited) {
+                                this.targetStar.visited = true;
+                                visitedCount++;
+                                // Draw visited star once onto overlay
+                                visitedCtx.beginPath();
+                                visitedCtx.arc(this.targetStar.x, this.targetStar.y, this.targetStar.radius, 0, 2 * Math.PI);
+                                visitedCtx.fillStyle = '#4f46e5';
+                                visitedCtx.fill();
+                                // Schedule production for this colonized star
+                                scheduleNextProductionForStar(this.targetStar);
+                            }
                             this.status = 'replicating';
                             this.replicationTimer = parseInt(replicationSlider.value);
-                            // Initialize continuous production timer for colonized star
-                            if (this.targetStar && this.targetStar.visited && this.targetStar.productionTimer === 0) {
-                                this.targetStar.productionTimer = parseInt(replicationSlider.value);
-                            }
                         } else {
                             const angle = Math.atan2(targetY - this.y, targetX - this.x);
                             this.x += Math.cos(angle) * travelPixelsPerStep;
@@ -357,22 +463,17 @@
                     offscreenCtx.fillStyle = '#a0a0a0'; // All stars start as gray
                     offscreenCtx.fill();
                 });
+                visitedCtx.clearRect(0, 0, visitedCanvas.width, visitedCanvas.height);
             }
 
             function draw() {
                 // 1. Copy the pre-rendered starfield
                 ctx.drawImage(offscreenCanvas, 0, 0);
 
-                // 2. Draw only the visited stars (as blue) and probes
-                stars.forEach(star => {
-                    if (star.visited) {
-                        ctx.beginPath();
-                        ctx.arc(star.x, star.y, star.radius, 0, 2 * Math.PI);
-                        ctx.fillStyle = '#4f46e5';
-                        ctx.fill();
-                    }
-                });
+                // 2. Overlay visited stars layer
+                ctx.drawImage(visitedCanvas, 0, 0);
 
+                // 3. Draw probes
                 probes.forEach(probe => {
                     ctx.beginPath();
                     ctx.arc(probe.x, probe.y, 3, 0, 2 * Math.PI);
@@ -386,7 +487,6 @@
 
 
             function updateStats() {
-                const visitedCount = stars.filter(s => s.visited).length;
                 const percentage = numStars > 0 ? (visitedCount / numStars) * 100 : 0;
                 
                 timeElapsedEl.textContent = formatYears(timeElapsed);
@@ -411,19 +511,8 @@
                 
                 probes.forEach(probe => probe.update());
                 
-                // Continuous production: colonized stars spawn probes periodically
-                if (continuousProduction && continuousProduction.checked) {
-                    const period = parseInt(replicationSlider.value);
-                    stars.forEach(star => {
-                        if (star.visited) {
-                            star.productionTimer -= TIME_STEP_YEARS;
-                            if (star.productionTimer <= 0) {
-                                probes.push(new Probe(star.x, star.y));
-                                star.productionTimer = period;
-                            }
-                        }
-                    });
-                }
+                // Event-driven production
+                processProductionEvents();
                 
                 const initialProbeCount = probes.length;
                 probes = probes.filter(probe => !probe.isDecommissioned);
@@ -440,7 +529,9 @@
                 simulationRunning = false;
                 cancelAnimationFrame(animationFrameId);
                 
-                timeElapsed = 0; probesLost = 0; probes = []; loopCounter = 0;
+                timeElapsed = 0; probesLost = 0; probes = []; loopCounter = 0; visitedCount = 0;
+                // Clear production queue
+                if (typeof productionQueue !== 'undefined') productionQueue.items = [];
                 
                 chartData.labels.length = 0;
                 chartData.activeProbes.length = 0;
@@ -449,12 +540,18 @@
                 
                 resizeCanvas(); 
                 createStars();
-                drawStaticStarfield(); // Pre-render the background
+                drawStaticStarfield(); // Pre-render the background and clear visited overlay
                 
                 if (stars.length > 0) {
                     const firstStar = stars[Math.floor(stars.length / 2)];
                     firstStar.visited = true;
-                    firstStar.productionTimer = parseInt(replicationSlider.value);
+                    visitedCount = 1;
+                    // Draw first visited star onto overlay and schedule
+                    visitedCtx.beginPath();
+                    visitedCtx.arc(firstStar.x, firstStar.y, firstStar.radius, 0, 2 * Math.PI);
+                    visitedCtx.fillStyle = '#4f46e5';
+                    visitedCtx.fill();
+                    if (typeof scheduleNextProductionForStar !== 'undefined') scheduleNextProductionForStar(firstStar);
                     probes.push(new Probe(firstStar.x, firstStar.y));
                 }
 
@@ -480,16 +577,7 @@
             speedSlider.addEventListener('input', (e) => { speedValue.textContent = `${e.target.value}%`; });
             replicationSlider.addEventListener('input', (e) => { replicationValue.textContent = e.target.value; });
             expirationSlider.addEventListener('input', (e) => { expirationValue.textContent = `${e.target.value}%`; });
-            // Changing replication time updates production cadence for continuous mode
-            replicationSlider.addEventListener('input', () => {
-                const period = parseInt(replicationSlider.value);
-                stars.forEach(star => {
-                    if (star.visited) {
-                        // Align next spawn roughly to new period without bursting
-                        star.productionTimer = Math.min(star.productionTimer, period);
-                    }
-                });
-            });
+            // Production cadence adapts automatically via event scheduler; no per-star updates needed here
             window.addEventListener('resize', resetSimulation);
 
             // --- Initial Call ---
