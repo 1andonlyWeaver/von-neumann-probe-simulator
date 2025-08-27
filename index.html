@@ -376,7 +376,10 @@
                     productionQueue.pop();
                     if (item.star.visited) {
                         if (continuousProduction && continuousProduction.checked) {
-                            probes.push(new Probe(item.star.x, item.star.y));
+                            const hasUnclaimedTarget = findClosestUnclaimedStar(item.star.x, item.star.y);
+                            if (hasUnclaimedTarget) {
+                                probes.push(new Probe(item.star.x, item.star.y));
+                            }
                         }
                         productionQueue.push({ star: item.star, time: timeElapsed + period });
                     }
