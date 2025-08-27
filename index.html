@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Von Neumann Probe Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .slider-thumb::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #4f46e5;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        .slider-thumb::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #4f46e5;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-7xl mx-auto">
+        <header class="text-center mb-6">
+            <h1 class="text-4xl font-bold text-white">Von Neumann Probe Colonization</h1>
+            <p class="text-lg text-gray-400 mt-2">An interactive simulation of exponential expansion across a galaxy.</p>
+        </header>
+
+        <div class="flex flex-col lg:flex-row gap-6">
+            <!-- Simulation Canvas -->
+            <div class="flex-grow bg-black rounded-xl shadow-2xl overflow-hidden border border-gray-700">
+                <canvas id="galaxyCanvas"></canvas>
+            </div>
+
+            <!-- Controls and Stats -->
+            <div class="lg:w-96 flex-shrink-0 space-y-6">
+                <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+                    <h2 class="text-2xl font-semibold text-white mb-4 border-b border-gray-600 pb-2">Controls</h2>
+                    <div class="space-y-5">
+                        <!-- Star Count Control -->
+                        <div>
+                            <label for="starSlider" class="block mb-2 text-sm font-medium">Number of Stars</label>
+                            <div class="flex items-center gap-4">
+                                <input id="starSlider" type="range" min="100" max="100000" step="100" value="500" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="starValue" class="font-mono text-indigo-400 w-20 text-center">500</span>
+                            </div>
+                        </div>
+                        <!-- Speed Control -->
+                        <div>
+                            <label for="speedSlider" class="block mb-2 text-sm font-medium">Probe Speed (% of light speed)</label>
+                            <div class="flex items-center gap-4">
+                                <input id="speedSlider" type="range" min="1" max="100" value="10" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="speedValue" class="font-mono text-indigo-400 w-12 text-center">10%</span>
+                            </div>
+                        </div>
+                        <!-- Replication Time Control -->
+                        <div>
+                            <label for="replicationSlider" class="block mb-2 text-sm font-medium">Replication Time (Years)</label>
+                             <div class="flex items-center gap-4">
+                                <input id="replicationSlider" type="range" min="100" max="5000" step="100" value="1000" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="replicationValue" class="font-mono text-indigo-400 w-20 text-center">1000</span>
+                            </div>
+                        </div>
+                        <!-- Expiration Risk Control -->
+                        <div>
+                            <label for="expirationSlider" class="block mb-2 text-sm font-medium">Expiration Risk (% per 1k years)</label>
+                             <div class="flex items-center gap-4">
+                                <input id="expirationSlider" type="range" min="0" max="50" step="1" value="5" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="expirationValue" class="font-mono text-indigo-400 w-20 text-center">5%</span>
+                            </div>
+                        </div>
+                        <!-- Initial Colonizers Control -->
+                        <div>
+                            <label for="colonizerSlider" class="block mb-2 text-sm font-medium">Initial Colonizers</label>
+                            <div class="flex items-center gap-4">
+                                <input id="colonizerSlider" type="range" min="1" max="20" step="1" value="1" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="colonizerValue" class="font-mono text-indigo-400 w-12 text-center">1</span>
+                            </div>
+                        </div>
+                        <!-- Continuous Production Toggle -->
+                        <div class="flex items-center justify-between">
+                            <label for="continuousProduction" class="text-sm font-medium">Continuous Production</label>
+                            <input id="continuousProduction" type="checkbox" class="h-5 w-5 accent-indigo-600">
+                        </div>
+                    </div>
+                    <div class="flex gap-4 mt-6">
+                        <button id="startPauseBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">Start</button>
+                        <button id="resetBtn" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">Reset</button>
+                    </div>
+                </div>
+
+                <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+                    <h2 class="text-2xl font-semibold text-white mb-4 border-b border-gray-600 pb-2">Statistics</h2>
+                    <div class="grid grid-cols-2 gap-y-4 gap-x-2 text-center">
+                        <div>
+                            <p class="text-sm text-gray-400">Elapsed Time</p>
+                            <p id="timeElapsed" class="text-xl font-bold text-indigo-400">0 Years</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-400">Active Probes</p>
+                            <p id="probeCount" class="text-xl font-bold text-indigo-400">0</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-400">Stars Visited</p>
+                            <p id="starsVisited" class="text-xl font-bold text-indigo-400">0 / 500</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-400">Galaxy Colonized</p>
+                            <p id="colonizationPercentage" class="text-xl font-bold text-indigo-400">0%</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-400">Galaxy Diameter</p>
+                            <p id="galaxyDiameter" class="text-xl font-bold text-indigo-400">0 LY</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-400">Probes Lost</p>
+                            <p id="probesLost" class="text-xl font-bold text-red-400">0</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Graph Section -->
+        <div class="mt-6 bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 h-80">
+             <h2 class="text-2xl font-semibold text-white mb-4 text-center">Simulation Progress</h2>
+            <canvas id="progressChart"></canvas>
+        </div>
+
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Canvas and Context Setup ---
+            const canvas = document.getElementById('galaxyCanvas');
+            const ctx = canvas.getContext('2d');
+            const chartCanvas = document.getElementById('progressChart');
+
+            // --- Performance Optimization ---
+            const offscreenCanvas = document.createElement('canvas');
+            const offscreenCtx = offscreenCanvas.getContext('2d');
+            const visitedCanvas = document.createElement('canvas');
+            const visitedCtx = visitedCanvas.getContext('2d');
+            
+            // --- DOM Element References ---
+            const starSlider = document.getElementById('starSlider');
+            const starValue = document.getElementById('starValue');
+            const speedSlider = document.getElementById('speedSlider');
+            const speedValue = document.getElementById('speedValue');
+            const replicationSlider = document.getElementById('replicationSlider');
+            const replicationValue = document.getElementById('replicationValue');
+            const expirationSlider = document.getElementById('expirationSlider');
+            const expirationValue = document.getElementById('expirationValue');
+            const colonizerSlider = document.getElementById('colonizerSlider');
+            const colonizerValue = document.getElementById('colonizerValue');
+            const continuousProduction = document.getElementById('continuousProduction');
+            const startPauseBtn = document.getElementById('startPauseBtn');
+            const resetBtn = document.getElementById('resetBtn');
+            const timeElapsedEl = document.getElementById('timeElapsed');
+            const probeCountEl = document.getElementById('probeCount');
+            const starsVisitedEl = document.getElementById('starsVisited');
+            const colonizationPercentageEl = document.getElementById('colonizationPercentage');
+            const probesLostEl = document.getElementById('probesLost');
+            const galaxyDiameterEl = document.getElementById('galaxyDiameter');
+
+            // --- Simulation Constants ---
+            const AVG_STAR_DISTANCE_LY = 5;
+            const TIME_STEP_YEARS = 50;
+            const CHART_UPDATE_INTERVAL = 10; // Update chart every 10 game loops (500 years)
+            let numStars = 500;
+            let galaxyDiameterLY = 0;
+            let loopCounter = 0;
+
+            // --- Simulation State ---
+            let stars = [];
+            let probes = [];
+            let timeElapsed = 0;
+            let probesLost = 0;
+            let simulationRunning = false;
+            let animationFrameId;
+            let visitedCount = 0;
+            let colonizerColors = [];
+            
+            // --- Chart State ---
+            let progressChart;
+            let chartData = {
+                labels: [],
+                activeProbes: [],
+                starsVisited: [],
+                probesLost: []
+            };
+
+            // --- Utility Functions ---
+            const resizeCanvas = () => {
+                const container = canvas.parentElement;
+                const size = Math.min(container.clientWidth, window.innerHeight * 0.6);
+                canvas.width = size;
+                canvas.height = size;
+                offscreenCanvas.width = size;
+                offscreenCanvas.height = size;
+                visitedCanvas.width = size;
+                visitedCanvas.height = size;
+                draw();
+            };
+
+            const formatYears = (years) => {
+                if (years < 1000) return `${Math.round(years)} Years`;
+                if (years < 1000000) return `${(years / 1000).toFixed(1)}k`;
+                return `${(years / 1000000).toFixed(2)}M`;
+            };
+            
+            function generateColonizerPalette(n) {
+                const colors = [];
+                for (let i = 0; i < n; i++) {
+                    const hue = Math.round((360 * i) / Math.max(1, n));
+                    colors.push(`hsl(${hue}, 70%, 60%)`);
+                }
+                return colors;
+            }
+            
+            // --- Charting ---
+            function setupChart() {
+                const chartCtx = chartCanvas.getContext('2d');
+                progressChart = new Chart(chartCtx, {
+                    type: 'line',
+                    data: {
+                        labels: chartData.labels,
+                        datasets: [
+                            { label: 'Active Probes', data: chartData.activeProbes, borderColor: '#6366f1', backgroundColor: '#6366f120', tension: 0.1, yAxisID: 'y' },
+                            { label: 'Stars Visited', data: chartData.starsVisited, borderColor: '#34d399', backgroundColor: '#34d39920', tension: 0.1, yAxisID: 'y1' }, // Assigned to y1
+                            { label: 'Probes Lost', data: chartData.probesLost, borderColor: '#f87171', backgroundColor: '#f8717120', tension: 0.1, yAxisID: 'y' }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: {
+                            x: { title: { display: true, text: 'Time (Years)', color: '#9ca3af' }, ticks: { color: '#9ca3af' } },
+                            y: { // Left Y-Axis for Probes
+                                type: 'linear', display: true, position: 'left',
+                                title: { display: true, text: 'Probe Count', color: '#9ca3af' },
+                                ticks: { color: '#9ca3af' }
+                            },
+                            y1: { // Right Y-Axis for Stars
+                                type: 'linear', display: true, position: 'right',
+                                title: { display: true, text: 'Stars Visited', color: '#9ca3af' },
+                                ticks: { color: '#9ca3af' },
+                                grid: { drawOnChartArea: false } // only want the grid from the left axis
+                            }
+                        },
+                        plugins: { legend: { labels: { color: '#d1d5db' } } }
+                    }
+                });
+            }
+            
+            function updateChart() {
+                if (!progressChart) return;
+                chartData.labels.push(formatYears(timeElapsed));
+                chartData.activeProbes.push(probes.length);
+                chartData.starsVisited.push(visitedCount);
+                chartData.probesLost.push(probesLost);
+                progressChart.update();
+            }
+
+            // --- Simulation Core ---
+            // Spatial grid for faster nearest-neighbor lookup
+            let gridCellSize = 16;
+            let gridCols = 0;
+            let gridRows = 0;
+            let gridBuckets = [];
+
+            function initGrid() {
+                const approxSpacing = Math.max(4, canvas.width / Math.sqrt(Math.max(1, numStars)));
+                gridCellSize = Math.max(8, Math.floor(approxSpacing));
+                gridCols = Math.max(1, Math.ceil(canvas.width / gridCellSize));
+                gridRows = Math.max(1, Math.ceil(canvas.height / gridCellSize));
+                gridBuckets = new Array(gridCols * gridRows);
+                for (let i = 0; i < gridBuckets.length; i++) gridBuckets[i] = [];
+            }
+
+            function bucketIndexForXY(x, y) {
+                const col = Math.min(gridCols - 1, Math.max(0, Math.floor(x / gridCellSize)));
+                const row = Math.min(gridRows - 1, Math.max(0, Math.floor(y / gridCellSize)));
+                return row * gridCols + col;
+            }
+
+            function createStars() {
+                stars = [];
+                numStars = parseInt(starSlider.value);
+                const areaPerStar = AVG_STAR_DISTANCE_LY * AVG_STAR_DISTANCE_LY;
+                const totalGalaxyArea = numStars * areaPerStar;
+                galaxyDiameterLY = Math.sqrt(4 * totalGalaxyArea / Math.PI);
+
+                initGrid();
+                for (let i = 0; i < numStars; i++) {
+                    const r = Math.random() * Math.random() * (canvas.width / 2);
+                    const angle = Math.random() * 2 * Math.PI;
+                    const x = canvas.width / 2 + r * Math.cos(angle);
+                    const y = canvas.height / 2 + r * Math.sin(angle);
+                    stars.push({
+                        x,
+                        y,
+                        visited: false, claimed: false,
+                        radius: Math.random() * 1.5 + 0.5,
+                        productionTimer: 0
+                    });
+                    gridBuckets[bucketIndexForXY(x, y)].push(i);
+                }
+            }
+
+            function findClosestUnclaimedStar(x, y) {
+                const startCol = Math.min(gridCols - 1, Math.max(0, Math.floor(x / gridCellSize)));
+                const startRow = Math.min(gridRows - 1, Math.max(0, Math.floor(y / gridCellSize)));
+                let foundIndex = -1;
+                let bestDistSq = Infinity;
+                const maxRadius = Math.max(gridCols, gridRows);
+
+                for (let radius = 0; radius <= maxRadius; radius++) {
+                    let anyInRing = false;
+                    const minCol = Math.max(0, startCol - radius);
+                    const maxCol = Math.min(gridCols - 1, startCol + radius);
+                    const minRow = Math.max(0, startRow - radius);
+                    const maxRow = Math.min(gridRows - 1, startRow + radius);
+
+                    for (let row = minRow; row <= maxRow; row++) {
+                        for (let col = minCol; col <= maxCol; col++) {
+                            if (radius > 0 && row > minRow && row < maxRow && col > minCol && col < maxCol) continue;
+                            const bucket = gridBuckets[row * gridCols + col];
+                            if (bucket.length === 0) continue;
+                            anyInRing = true;
+                            for (let k = 0; k < bucket.length; k++) {
+                                const idx = bucket[k];
+                                const star = stars[idx];
+                                if (star.visited || star.claimed) continue;
+                                const dx = star.x - x;
+                                const dy = star.y - y;
+                                const d2 = dx * dx + dy * dy;
+                                if (d2 < bestDistSq) {
+                                    bestDistSq = d2;
+                                    foundIndex = idx;
+                                }
+                            }
+                        }
+                    }
+                    if (foundIndex !== -1 || !anyInRing) break;
+                }
+                return foundIndex === -1 ? null : stars[foundIndex];
+            }
+
+            // Event-driven production scheduler
+            class MinHeap {
+                constructor(compare) { this.compare = compare; this.items = []; }
+                peek() { return this.items.length ? this.items[0] : null; }
+                push(item) { this.items.push(item); this.#up(this.items.length - 1); }
+                pop() {
+                    if (!this.items.length) return null;
+                    const top = this.items[0];
+                    const end = this.items.pop();
+                    if (this.items.length) { this.items[0] = end; this.#down(0); }
+                    return top;
+                }
+                #up(i) {
+                    const a = this.items; const x = a[i];
+                    while (i > 0) { const p = (i - 1) >> 1; const y = a[p]; if (this.compare(x, y) >= 0) break; a[i] = y; a[p] = x; i = p; }
+                }
+                #down(i) {
+                    const a = this.items; const n = a.length; const x = a[i];
+                    for (;;) {
+                        let l = i * 2 + 1, r = i * 2 + 2, s = i;
+                        if (l < n && this.compare(a[l], a[s]) < 0) s = l;
+                        if (r < n && this.compare(a[r], a[s]) < 0) s = r;
+                        if (s === i) break; a[i] = a[s]; a[s] = x; i = s;
+                    }
+                }
+            }
+
+            const productionQueue = new MinHeap((a, b) => a.time - b.time);
+            function scheduleNextProductionForStar(star) {
+                const period = parseInt(replicationSlider.value);
+                productionQueue.push({ star, time: timeElapsed + period });
+            }
+            function processProductionEvents() {
+                const period = parseInt(replicationSlider.value);
+                let item = productionQueue.peek();
+                while (item && item.time <= timeElapsed) {
+                    productionQueue.pop();
+                    if (item.star.visited) {
+                        if (continuousProduction && continuousProduction.checked) {
+                            const hasUnclaimedTarget = findClosestUnclaimedStar(item.star.x, item.star.y);
+                            if (hasUnclaimedTarget) {
+                                probes.push(new Probe(item.star.x, item.star.y, item.star.colonizerId));
+                            }
+                        }
+                        productionQueue.push({ star: item.star, time: timeElapsed + period });
+                    }
+                    item = productionQueue.peek();
+                }
+            }
+
+            class Probe {
+                constructor(x, y, colonizerId = null) {
+                    this.x = x; this.y = y; this.status = 'seeking';
+                    this.targetStar = null; this.replicationTimer = 0;
+                    this.isDecommissioned = false; this.colonizerId = colonizerId; this.findNewTarget();
+                }
+
+                findNewTarget() {
+                    this.targetStar = findClosestUnclaimedStar(this.x, this.y);
+                    if (this.targetStar) {
+                        this.targetStar.claimed = true;
+                        this.status = 'traveling';
+                    } else {
+                        this.status = 'idle';
+                    }
+                }
+
+                update() {
+                    const riskPer1kYears = parseInt(expirationSlider.value) / 100;
+                    if (riskPer1kYears > 0) {
+                        const riskPerYear = riskPer1kYears / 1000;
+                        const survivalProbability = Math.pow(1 - riskPerYear, TIME_STEP_YEARS);
+                        if (Math.random() > survivalProbability) {
+                            this.isDecommissioned = true;
+                            if (this.targetStar && this.status === 'traveling') {
+                                this.targetStar.claimed = false;
+                            }
+                            return;
+                        }
+                    }
+
+                    if (this.status === 'traveling' && this.targetStar) {
+                        const targetX = this.targetStar.x; const targetY = this.targetStar.y;
+                        const distanceToTarget = Math.hypot(targetX - this.x, targetY - this.y);
+                        
+                        const speedOfLightFraction = parseInt(speedSlider.value) / 100;
+                        const travelLyPerStep = speedOfLightFraction * TIME_STEP_YEARS;
+                        const travelPixelsPerStep = (travelLyPerStep / galaxyDiameterLY) * canvas.width;
+
+                        if (distanceToTarget <= travelPixelsPerStep) {
+                            this.x = targetX; this.y = targetY;
+                            if (!this.targetStar.visited) {
+                                this.targetStar.visited = true;
+                                // track which colonizer visited this star first
+                                if (this.colonizerId == null) {
+                                    // Assign unassigned probes to their own origin bucket if needed
+                                    this.colonizerId = 0;
+                                }
+                                this.targetStar.colonizerId = this.colonizerId;
+                                visitedCount++;
+                                // Draw visited star once onto overlay
+                                visitedCtx.beginPath();
+                                visitedCtx.arc(this.targetStar.x, this.targetStar.y, this.targetStar.radius, 0, 2 * Math.PI);
+                                visitedCtx.fillStyle = colonizerColors[this.colonizerId % colonizerColors.length] || '#4f46e5';
+                                visitedCtx.fill();
+                                // Schedule production for this colonized star
+                                scheduleNextProductionForStar(this.targetStar);
+                            }
+                            this.status = 'replicating';
+                            this.replicationTimer = parseInt(replicationSlider.value);
+                        } else {
+                            const angle = Math.atan2(targetY - this.y, targetX - this.x);
+                            this.x += Math.cos(angle) * travelPixelsPerStep;
+                            this.y += Math.sin(angle) * travelPixelsPerStep;
+                        }
+                    } else if (this.status === 'replicating') {
+                        this.replicationTimer -= TIME_STEP_YEARS;
+                        if (this.replicationTimer <= 0) {
+                            probes.push(new Probe(this.x, this.y, this.colonizerId));
+                            this.findNewTarget();
+                        }
+                    }
+                }
+            }
+            
+            // --- OPTIMIZED DRAWING FUNCTIONS ---
+            function drawStaticStarfield() {
+                offscreenCtx.fillStyle = 'black';
+                offscreenCtx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+                stars.forEach(star => {
+                    offscreenCtx.beginPath();
+                    offscreenCtx.arc(star.x, star.y, star.radius, 0, 2 * Math.PI);
+                    offscreenCtx.fillStyle = '#a0a0a0'; // All stars start as gray
+                    offscreenCtx.fill();
+                });
+                visitedCtx.clearRect(0, 0, visitedCanvas.width, visitedCanvas.height);
+            }
+
+            function draw() {
+                // 1. Copy the pre-rendered starfield
+                ctx.drawImage(offscreenCanvas, 0, 0);
+
+                // 2. Overlay visited stars layer
+                ctx.drawImage(visitedCanvas, 0, 0);
+
+                // 3. Draw probes
+                probes.forEach(probe => {
+                    ctx.beginPath();
+                    ctx.arc(probe.x, probe.y, 3, 0, 2 * Math.PI);
+                    ctx.fillStyle = colonizerColors[probe.colonizerId % colonizerColors.length] || '#4f46e5';
+                    ctx.fill();
+                    ctx.strokeStyle = '#a5b4fc';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                });
+            }
+
+
+            function updateStats() {
+                const percentage = numStars > 0 ? (visitedCount / numStars) * 100 : 0;
+                
+                timeElapsedEl.textContent = formatYears(timeElapsed);
+                probeCountEl.textContent = probes.length;
+                starsVisitedEl.textContent = `${visitedCount} / ${numStars}`;
+                colonizationPercentageEl.textContent = `${percentage.toFixed(1)}%`;
+                probesLostEl.textContent = probesLost;
+                galaxyDiameterEl.textContent = `${Math.round(galaxyDiameterLY)} LY`;
+
+                if (visitedCount === numStars && numStars > 0 && simulationRunning) {
+                    simulationRunning = false;
+                    startPauseBtn.textContent = 'Done';
+                    startPauseBtn.disabled = true;
+                    cancelAnimationFrame(animationFrameId);
+                }
+            }
+
+            function gameLoop() {
+                if (!simulationRunning) return;
+                timeElapsed += TIME_STEP_YEARS;
+                loopCounter++;
+                
+                probes.forEach(probe => probe.update());
+                
+                // Event-driven production
+                processProductionEvents();
+                
+                const initialProbeCount = probes.length;
+                probes = probes.filter(probe => !probe.isDecommissioned);
+                probesLost += initialProbeCount - probes.length;
+                
+                draw();
+                updateStats();
+                
+                if (loopCounter % CHART_UPDATE_INTERVAL === 0) updateChart();
+                animationFrameId = requestAnimationFrame(gameLoop);
+            }
+
+            function resetSimulation() {
+                simulationRunning = false;
+                cancelAnimationFrame(animationFrameId);
+                
+                timeElapsed = 0; probesLost = 0; probes = []; loopCounter = 0; visitedCount = 0;
+                // Clear production queue
+                if (typeof productionQueue !== 'undefined') productionQueue.items = [];
+                
+                chartData.labels.length = 0;
+                chartData.activeProbes.length = 0;
+                chartData.starsVisited.length = 0;
+                chartData.probesLost.length = 0;
+                
+                resizeCanvas(); 
+                createStars();
+                drawStaticStarfield(); // Pre-render the background and clear visited overlay
+                
+                if (stars.length > 0) {
+                    const numColonizers = Math.max(1, Math.min(parseInt(colonizerSlider.value), stars.length));
+                    colonizerColors = generateColonizerPalette(numColonizers);
+                    const chosen = new Set();
+                    while (chosen.size < numColonizers) {
+                        const idx = Math.floor(Math.random() * stars.length);
+                        chosen.add(idx);
+                    }
+                    let cid = 0;
+                    chosen.forEach((idx) => {
+                        const s = stars[idx];
+                        if (!s.visited) {
+                            s.visited = true;
+                            s.colonizerId = cid;
+                            visitedCount++;
+                            // Draw visited star onto overlay and schedule
+                            visitedCtx.beginPath();
+                            visitedCtx.arc(s.x, s.y, s.radius, 0, 2 * Math.PI);
+                            visitedCtx.fillStyle = colonizerColors[cid % colonizerColors.length] || '#4f46e5';
+                            visitedCtx.fill();
+                            if (typeof scheduleNextProductionForStar !== 'undefined') scheduleNextProductionForStar(s);
+                            probes.push(new Probe(s.x, s.y, cid));
+                        }
+                        cid++;
+                    });
+                }
+
+                draw();
+                updateStats();
+                updateChart();
+                
+                startPauseBtn.textContent = 'Start';
+                startPauseBtn.disabled = false;
+            }
+            
+            // --- Event Listeners ---
+            startPauseBtn.addEventListener('click', () => {
+                simulationRunning = !simulationRunning;
+                startPauseBtn.textContent = simulationRunning ? 'Pause' : 'Resume';
+                if (simulationRunning) gameLoop();
+            });
+            resetBtn.addEventListener('click', resetSimulation);
+            starSlider.addEventListener('input', (e) => {
+                starValue.textContent = e.target.value;
+                resetSimulation();
+            });
+            colonizerSlider.addEventListener('input', (e) => {
+                colonizerValue.textContent = e.target.value;
+                resetSimulation();
+            });
+            speedSlider.addEventListener('input', (e) => { speedValue.textContent = `${e.target.value}%`; });
+            replicationSlider.addEventListener('input', (e) => { replicationValue.textContent = e.target.value; });
+            expirationSlider.addEventListener('input', (e) => { expirationValue.textContent = `${e.target.value}%`; });
+            // Production cadence adapts automatically via event scheduler; no per-star updates needed here
+            window.addEventListener('resize', resetSimulation);
+
+            // --- Click-to-edit numeric displays ---
+            function enableEditableValue(displayEl, sliderEl, options = {}) {
+                const suffix = options.suffix || '';
+                let previousText = '';
+                function startEdit() {
+                    previousText = displayEl.textContent;
+                    displayEl.contentEditable = 'true';
+                    displayEl.classList.add('bg-gray-700', 'rounded', 'px-1', 'outline-none', 'ring-1', 'ring-indigo-500');
+                    let raw = previousText.trim();
+                    if (suffix && raw.endsWith(suffix)) raw = raw.slice(0, -suffix.length);
+                    displayEl.textContent = raw;
+                    const selection = window.getSelection();
+                    const range = document.createRange();
+                    range.selectNodeContents(displayEl);
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                    displayEl.focus();
+                }
+
+                function commitEdit() {
+                    const raw = displayEl.textContent.trim().replace(/,/g, '');
+                    let numeric = parseFloat(raw);
+                    if (Number.isNaN(numeric)) { cancelEdit(); return; }
+                    const min = sliderEl.min !== '' ? parseFloat(sliderEl.min) : -Infinity;
+                    const max = sliderEl.max !== '' ? parseFloat(sliderEl.max) : Infinity;
+                    const step = sliderEl.step ? parseFloat(sliderEl.step) : 1;
+                    if (step > 0) {
+                        numeric = Math.round(numeric / step) * step;
+                    }
+                    numeric = Math.min(max, Math.max(min, numeric));
+                    if (Number.isInteger(step)) numeric = Math.round(numeric);
+                    sliderEl.value = String(numeric);
+                    displayEl.textContent = suffix ? `${numeric}${suffix}` : `${numeric}`;
+                    displayEl.contentEditable = 'false';
+                    displayEl.classList.remove('bg-gray-700', 'px-1', 'ring-1', 'ring-indigo-500');
+                    if (typeof options.onChange === 'function') options.onChange(numeric);
+                }
+
+                function cancelEdit() {
+                    displayEl.textContent = previousText;
+                    displayEl.contentEditable = 'false';
+                    displayEl.classList.remove('bg-gray-700', 'px-1', 'ring-1', 'ring-indigo-500');
+                }
+
+                displayEl.classList.add('cursor-text');
+                displayEl.title = 'Click to edit';
+                displayEl.addEventListener('click', () => {
+                    if (displayEl.isContentEditable) return;
+                    startEdit();
+                });
+                displayEl.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+                });
+                displayEl.addEventListener('blur', () => {
+                    if (displayEl.isContentEditable) commitEdit();
+                });
+            }
+
+            enableEditableValue(starValue, starSlider, { onChange: () => { starValue.textContent = starSlider.value; resetSimulation(); } });
+            enableEditableValue(colonizerValue, colonizerSlider, { onChange: (v) => { colonizerValue.textContent = `${v}`; resetSimulation(); } });
+            enableEditableValue(speedValue, speedSlider, { suffix: '%', onChange: (v) => { speedValue.textContent = `${v}%`; } });
+            enableEditableValue(replicationValue, replicationSlider, { onChange: (v) => { replicationValue.textContent = `${v}`; } });
+            enableEditableValue(expirationValue, expirationSlider, { suffix: '%', onChange: (v) => { expirationValue.textContent = `${v}%`; } });
+
+            // --- Initial Call ---
+            setupChart();
+            resetSimulation();
+        });
+    </script>
+</body>
+</html>
