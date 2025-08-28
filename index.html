@@ -191,6 +191,12 @@
             let galaxyDiameterLY = 0;
             let loopCounter = 0;
 
+            // --- Derived per-loop parameters (cached for performance) ---
+            const PROBE_DRAW_RADIUS = 2;
+            let perLoopTravelPixelsPerStep = 0;
+            let survivalProbabilityTravel = 1;
+            let survivalProbabilityColonize = 1;
+
             // --- Simulation State ---
             let stars = [];
             let probes = [];
@@ -246,13 +252,14 @@
                     data: {
                         labels: chartData.labels,
                         datasets: [
-                            { label: 'Active Probes', data: chartData.activeProbes, borderColor: '#6366f1', backgroundColor: '#6366f120', tension: 0.1, yAxisID: 'y' },
-                            { label: 'Stars Visited', data: chartData.starsVisited, borderColor: '#34d399', backgroundColor: '#34d39920', tension: 0.1, yAxisID: 'y1' }, // Assigned to y1
-                            { label: 'Probes Lost', data: chartData.probesLost, borderColor: '#f87171', backgroundColor: '#f8717120', tension: 0.1, yAxisID: 'y' }
+                            { label: 'Active Probes', data: chartData.activeProbes, borderColor: '#6366f1', backgroundColor: '#6366f120', tension: 0.1, yAxisID: 'y', pointRadius: 0, hitRadius: 0, hoverRadius: 0 },
+                            { label: 'Stars Visited', data: chartData.starsVisited, borderColor: '#34d399', backgroundColor: '#34d39920', tension: 0.1, yAxisID: 'y1', pointRadius: 0, hitRadius: 0, hoverRadius: 0 }, // Assigned to y1
+                            { label: 'Probes Lost', data: chartData.probesLost, borderColor: '#f87171', backgroundColor: '#f8717120', tension: 0.1, yAxisID: 'y', pointRadius: 0, hitRadius: 0, hoverRadius: 0 }
                         ]
                     },
                     options: {
-                        responsive: true, maintainAspectRatio: false,
+                        responsive: true, maintainAspectRatio: false, animation: false, normalized: true,
+                        elements: { point: { radius: 0 } },
                         scales: {
                             x: { title: { display: true, text: 'Time (Years)', color: '#9ca3af' }, ticks: { color: '#9ca3af' } },
                             y: { // Left Y-Axis for Probes
@@ -366,6 +373,22 @@
                 return foundIndex === -1 ? null : stars[foundIndex];
             }
 
+            // --- Cached per-loop parameter computation ---
+            function updateCachedLoopParams() {
+                const speedOfLightFraction = parseInt(speedSlider.value) / 100;
+                const travelLyPerStep = speedOfLightFraction * TIME_STEP_YEARS;
+                perLoopTravelPixelsPerStep = galaxyDiameterLY > 0
+                    ? (travelLyPerStep / galaxyDiameterLY) * canvas.width
+                    : 0;
+
+                const travelRiskPer100Years = parseInt(travelExpirationSlider.value) / 100;
+                const colonizeRiskPer100Years = parseInt(colonizationExpirationSlider.value) / 100;
+                const riskPerYearTravel = travelRiskPer100Years / 100;
+                const riskPerYearColonize = colonizeRiskPer100Years / 100;
+                survivalProbabilityTravel = Math.pow(1 - riskPerYearTravel, TIME_STEP_YEARS);
+                survivalProbabilityColonize = Math.pow(1 - riskPerYearColonize, TIME_STEP_YEARS);
+            }
+
             // Compute a frontier priority: lower is closer to the nearest unclaimed star
             function computeFrontierPriority(star) {
                 const target = findClosestUnclaimedStar(star.x, star.y);
@@ -450,7 +473,9 @@
             });
             function scheduleNextProductionForStar(star) {
                 const period = parseInt(replicationSlider.value);
-                const priority = computeFrontierPriority(star);
+                const priority = (continuousProduction && continuousProduction.checked)
+                    ? computeFrontierPriority(star)
+                    : undefined;
                 productionQueue.push({ star, time: timeElapsed + period, priority });
             }
             function processProductionEvents() {
@@ -467,7 +492,10 @@
                                 probes.push(new Probe(bestSource.x, bestSource.y, sourceColonizerId, targetCandidate));
                             }
                         }
-                        productionQueue.push({ star: item.star, time: timeElapsed + period, priority: computeFrontierPriority(item.star) });
+                        const nextPriority = (continuousProduction && continuousProduction.checked)
+                            ? computeFrontierPriority(item.star)
+                            : undefined;
+                        productionQueue.push({ star: item.star, time: timeElapsed + period, priority: nextPriority });
                     }
                     item = productionQueue.peek();
                 }
@@ -498,30 +526,24 @@
                 }
 
                 update() {
-                    const travelRiskPer100Years = parseInt(travelExpirationSlider.value) / 100;
-                    const colonizeRiskPer100Years = parseInt(colonizationExpirationSlider.value) / 100;
-                    const activeRiskPer100Years = this.status === 'traveling' ? travelRiskPer100Years : colonizeRiskPer100Years;
-                    if (activeRiskPer100Years > 0) {
-                        const riskPerYear = activeRiskPer100Years / 100;
-                        const survivalProbability = Math.pow(1 - riskPerYear, TIME_STEP_YEARS);
-                        if (Math.random() > survivalProbability) {
-                            this.isDecommissioned = true;
-                            if (this.targetStar && this.status === 'traveling') {
-                                this.targetStar.claimed = false;
-                            }
-                            return;
+                    // Failure check using cached survival probabilities
+                    const survivalProbability = this.status === 'traveling'
+                        ? survivalProbabilityTravel
+                        : survivalProbabilityColonize;
+                    if (Math.random() > survivalProbability) {
+                        this.isDecommissioned = true;
+                        if (this.targetStar && this.status === 'traveling') {
+                            this.targetStar.claimed = false;
                         }
+                        return;
                     }
 
                     if (this.status === 'traveling' && this.targetStar) {
                         const targetX = this.targetStar.x; const targetY = this.targetStar.y;
-                        const distanceToTarget = Math.hypot(targetX - this.x, targetY - this.y);
-                        
-                        const speedOfLightFraction = parseInt(speedSlider.value) / 100;
-                        const travelLyPerStep = speedOfLightFraction * TIME_STEP_YEARS;
-                        const travelPixelsPerStep = (travelLyPerStep / galaxyDiameterLY) * canvas.width;
+                        const dx = targetX - this.x; const dy = targetY - this.y;
+                        const distanceToTarget = Math.hypot(dx, dy);
 
-                        if (distanceToTarget <= travelPixelsPerStep) {
+                        if (distanceToTarget <= perLoopTravelPixelsPerStep) {
                             this.x = targetX; this.y = targetY;
                             if (!this.targetStar.visited) {
                                 this.targetStar.visited = true;
@@ -543,9 +565,9 @@
                             this.status = 'replicating';
                             this.replicationTimer = parseInt(replicationSlider.value);
                         } else {
-                            const angle = Math.atan2(targetY - this.y, targetX - this.x);
-                            this.x += Math.cos(angle) * travelPixelsPerStep;
-                            this.y += Math.sin(angle) * travelPixelsPerStep;
+                            const scale = perLoopTravelPixelsPerStep / (distanceToTarget || 1);
+                            this.x += dx * scale;
+                            this.y += dy * scale;
                         }
                     } else if (this.status === 'replicating') {
                         this.replicationTimer -= TIME_STEP_YEARS;
@@ -577,15 +599,24 @@
                 // 2. Overlay visited stars layer
                 ctx.drawImage(visitedCanvas, 0, 0);
 
-                // 3. Draw probes
-                probes.forEach(probe => {
+                // 3. Draw probes batched by color
+                const colorBuckets = new Map();
+                for (let i = 0; i < probes.length; i++) {
+                    const p = probes[i];
+                    const color = colonizerColors[p.colonizerId % colonizerColors.length] || '#4f46e5';
+                    let arr = colorBuckets.get(color);
+                    if (!arr) { arr = []; colorBuckets.set(color, arr); }
+                    arr.push(p);
+                }
+                colorBuckets.forEach((plist, color) => {
+                    ctx.fillStyle = color;
                     ctx.beginPath();
-                    ctx.arc(probe.x, probe.y, 3, 0, 2 * Math.PI);
-                    ctx.fillStyle = colonizerColors[probe.colonizerId % colonizerColors.length] || '#4f46e5';
+                    for (let i = 0; i < plist.length; i++) {
+                        const p = plist[i];
+                        ctx.moveTo(p.x + PROBE_DRAW_RADIUS, p.y);
+                        ctx.arc(p.x, p.y, PROBE_DRAW_RADIUS, 0, 2 * Math.PI);
+                    }
                     ctx.fill();
-                    ctx.strokeStyle = '#a5b4fc';
-                    ctx.lineWidth = 1;
-                    ctx.stroke();
                 });
             }
 
@@ -610,6 +641,7 @@
 
             function gameLoop() {
                 if (!simulationRunning) return;
+                updateCachedLoopParams();
                 timeElapsed += TIME_STEP_YEARS;
                 loopCounter++;
                 
