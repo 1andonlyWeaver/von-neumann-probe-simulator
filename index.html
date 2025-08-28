@@ -52,16 +52,16 @@
                         <div>
                             <label for="starSlider" class="block mb-2 text-sm font-medium">Number of Stars</label>
                             <div class="flex items-center gap-4">
-                                <input id="starSlider" type="range" min="100" max="100000" step="100" value="500" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
-                                <span id="starValue" class="font-mono text-indigo-400 w-20 text-center">500</span>
+                                <input id="starSlider" type="range" min="100" max="100000" step="100" value="1000" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="starValue" class="font-mono text-indigo-400 w-20 text-center">1000</span>
                             </div>
                         </div>
                         <!-- Speed Control -->
                         <div>
                             <label for="speedSlider" class="block mb-2 text-sm font-medium">Probe Speed (% of light speed)</label>
                             <div class="flex items-center gap-4">
-                                <input id="speedSlider" type="range" min="1" max="100" value="10" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
-                                <span id="speedValue" class="font-mono text-indigo-400 w-12 text-center">10%</span>
+                                <input id="speedSlider" type="range" min="1" max="100" value="1" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="speedValue" class="font-mono text-indigo-400 w-12 text-center">1%</span>
                             </div>
                         </div>
                         <!-- Replication Time Control -->
@@ -76,15 +76,15 @@
                         <div>
                             <label for="travelExpirationSlider" class="block mb-2 text-sm font-medium">Travel Expiration Risk (% per 100 years)</label>
                             <div class="flex items-center gap-4">
-                                <input id="travelExpirationSlider" type="range" min="0" max="100" step="1" value="2" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
-                                <span id="travelExpirationValue" class="font-mono text-indigo-400 w-20 text-center">2%</span>
+                                <input id="travelExpirationSlider" type="range" min="0" max="100" step="1" value="10" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="travelExpirationValue" class="font-mono text-indigo-400 w-20 text-center">10%</span>
                             </div>
                         </div>
                         <div>
                             <label for="colonizationExpirationSlider" class="block mb-2 text-sm font-medium">Colonization Expiration Risk (% per 100 years)</label>
                             <div class="flex items-center gap-4">
-                                <input id="colonizationExpirationSlider" type="range" min="0" max="100" step="1" value="8" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
-                                <span id="colonizationExpirationValue" class="font-mono text-indigo-400 w-20 text-center">8%</span>
+                                <input id="colonizationExpirationSlider" type="range" min="0" max="100" step="1" value="50" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="colonizationExpirationValue" class="font-mono text-indigo-400 w-20 text-center">50%</span>
                             </div>
                         </div>
                         <!-- Initial Colonizers Control -->
@@ -98,7 +98,7 @@
                         <!-- Continuous Production Toggle -->
                         <div class="flex items-center justify-between">
                             <label for="continuousProduction" class="text-sm font-medium">Continuous Production</label>
-                            <input id="continuousProduction" type="checkbox" class="h-5 w-5 accent-indigo-600">
+                            <input id="continuousProduction" type="checkbox" class="h-5 w-5 accent-indigo-600" checked>
                         </div>
                     </div>
                     <div class="flex gap-4 mt-6">
@@ -120,7 +120,7 @@
                         </div>
                         <div>
                             <p class="text-sm text-gray-400">Stars Visited</p>
-                            <p id="starsVisited" class="text-xl font-bold text-indigo-400">0 / 500</p>
+                            <p id="starsVisited" class="text-xl font-bold text-indigo-400">0 / 1000</p>
                         </div>
                         <div>
                             <p class="text-sm text-gray-400">Galaxy Colonized</p>
@@ -187,7 +187,7 @@
             const AVG_STAR_DISTANCE_LY = 5;
             const TIME_STEP_YEARS = 50;
             const CHART_UPDATE_INTERVAL = 10; // Update chart every 10 game loops (500 years)
-            let numStars = 500;
+            let numStars = 1000;
             let galaxyDiameterLY = 0;
             let loopCounter = 0;
 
