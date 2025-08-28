@@ -192,7 +192,7 @@
             let loopCounter = 0;
 
             // --- Derived per-loop parameters (cached for performance) ---
-            const PROBE_DRAW_RADIUS = 2;
+            const PROBE_DRAW_SIZE = 4; // square marker size for probes (px)
             let perLoopTravelPixelsPerStep = 0;
             let survivalProbabilityTravel = 1;
             let survivalProbabilityColonize = 1;
@@ -557,7 +557,8 @@
                                 // Draw visited star once onto overlay
                                 visitedCtx.beginPath();
                                 visitedCtx.arc(this.targetStar.x, this.targetStar.y, this.targetStar.radius, 0, 2 * Math.PI);
-                                visitedCtx.fillStyle = colonizerColors[this.colonizerId % colonizerColors.length] || '#4f46e5';
+                                const starColor = colonizerColors[this.colonizerId % colonizerColors.length] || '#4f46e5';
+                                visitedCtx.fillStyle = starColor + '80'; // add alpha for softer star
                                 visitedCtx.fill();
                                 // Schedule production for this colonized star
                                 scheduleNextProductionForStar(this.targetStar);
@@ -609,14 +610,25 @@
                     arr.push(p);
                 }
                 colorBuckets.forEach((plist, color) => {
-                    ctx.fillStyle = color;
+                    const r = PROBE_DRAW_SIZE / 2;
+                    ctx.lineWidth = 1.25;
+                    ctx.lineJoin = 'round';
+                    // Build path of diamonds
                     ctx.beginPath();
                     for (let i = 0; i < plist.length; i++) {
                         const p = plist[i];
-                        ctx.moveTo(p.x + PROBE_DRAW_RADIUS, p.y);
-                        ctx.arc(p.x, p.y, PROBE_DRAW_RADIUS, 0, 2 * Math.PI);
+                        ctx.moveTo(p.x, p.y - r);
+                        ctx.lineTo(p.x + r, p.y);
+                        ctx.lineTo(p.x, p.y + r);
+                        ctx.lineTo(p.x - r, p.y);
+                        ctx.closePath();
                     }
+                    // White fill for contrast
+                    ctx.fillStyle = '#ffffff';
                     ctx.fill();
+                    // Colored stroke to indicate colonizer
+                    ctx.strokeStyle = color;
+                    ctx.stroke();
                 });
             }
 
