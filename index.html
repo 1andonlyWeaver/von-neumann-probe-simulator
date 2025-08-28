@@ -100,6 +100,16 @@
                             <label for="continuousProduction" class="text-sm font-medium">Continuous Production</label>
                             <input id="continuousProduction" type="checkbox" class="h-5 w-5 accent-indigo-600" checked>
                         </div>
+                        <!-- Performance Mode Toggle -->
+                        <div class="flex items-center justify-between">
+                            <label for="performanceMode" class="text-sm font-medium">Performance Mode</label>
+                            <input id="performanceMode" type="checkbox" class="h-5 w-5 accent-indigo-600">
+                        </div>
+                        <!-- Show Chart Toggle -->
+                        <div class="flex items-center justify-between">
+                            <label for="showChart" class="text-sm font-medium">Show Chart</label>
+                            <input id="showChart" type="checkbox" class="h-5 w-5 accent-indigo-600" checked>
+                        </div>
                     </div>
                     <div class="flex gap-4 mt-6">
                         <button id="startPauseBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">Start</button>
@@ -140,7 +150,7 @@
         </div>
         
         <!-- Graph Section -->
-        <div class="mt-6 bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 h-80">
+        <div id="chartContainer" class="mt-6 bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 h-80">
              <h2 class="text-2xl font-semibold text-white mb-4 text-center">Simulation Progress</h2>
             <canvas id="progressChart"></canvas>
         </div>
@@ -153,6 +163,7 @@
             const canvas = document.getElementById('galaxyCanvas');
             const ctx = canvas.getContext('2d');
             const chartCanvas = document.getElementById('progressChart');
+            const chartContainer = document.getElementById('chartContainer');
 
             // --- Performance Optimization ---
             const offscreenCanvas = document.createElement('canvas');
@@ -174,6 +185,8 @@
             const colonizerSlider = document.getElementById('colonizerSlider');
             const colonizerValue = document.getElementById('colonizerValue');
             const continuousProduction = document.getElementById('continuousProduction');
+            const performanceMode = document.getElementById('performanceMode');
+            const showChart = document.getElementById('showChart');
             const startPauseBtn = document.getElementById('startPauseBtn');
             const resetBtn = document.getElementById('resetBtn');
             const timeElapsedEl = document.getElementById('timeElapsed');
@@ -206,6 +219,10 @@
             let animationFrameId;
             let visitedCount = 0;
             let colonizerColors = [];
+            let lastDrawTimeMs = 0;
+            const TARGET_FPS = 30;
+            const FRAME_INTERVAL_MS = Math.floor(1000 / TARGET_FPS);
+            const LOD_PROBE_THRESHOLD = 8000;
             
             // --- Chart State ---
             let progressChart;
@@ -215,6 +232,7 @@
                 starsVisited: [],
                 probesLost: []
             };
+            const MAX_CHART_POINTS = 300; // rolling history window to limit chart work
 
             // --- Utility Functions ---
             const resizeCanvas = () => {
@@ -260,6 +278,7 @@
                     options: {
                         responsive: true, maintainAspectRatio: false, animation: false, normalized: true,
                         elements: { point: { radius: 0 } },
+                        plugins: { decimation: { enabled: true, algorithm: 'min-max' }, legend: { labels: { color: '#d1d5db' } } },
                         scales: {
                             x: { title: { display: true, text: 'Time (Years)', color: '#9ca3af' }, ticks: { color: '#9ca3af' } },
                             y: { // Left Y-Axis for Probes
@@ -273,8 +292,7 @@
                                 ticks: { color: '#9ca3af' },
                                 grid: { drawOnChartArea: false } // only want the grid from the left axis
                             }
-                        },
-                        plugins: { legend: { labels: { color: '#d1d5db' } } }
+                        }
                     }
                 });
             }
@@ -285,6 +303,12 @@
                 chartData.activeProbes.push(probes.length);
                 chartData.starsVisited.push(visitedCount);
                 chartData.probesLost.push(probesLost);
+                if (chartData.labels.length > MAX_CHART_POINTS) {
+                    chartData.labels.shift();
+                    chartData.activeProbes.shift();
+                    chartData.starsVisited.shift();
+                    chartData.probesLost.shift();
+                }
                 progressChart.update();
             }
 
@@ -530,7 +554,7 @@
                     const survivalProbability = this.status === 'traveling'
                         ? survivalProbabilityTravel
                         : survivalProbabilityColonize;
-                    if (Math.random() > survivalProbability) {
+                    if (survivalProbability < 1 && Math.random() > survivalProbability) {
                         this.isDecommissioned = true;
                         if (this.targetStar && this.status === 'traveling') {
                             this.targetStar.claimed = false;
@@ -600,16 +624,40 @@
                 // 2. Overlay visited stars layer
                 ctx.drawImage(visitedCanvas, 0, 0);
 
-                // 3. Draw probes batched by color
-                const colorBuckets = new Map();
+                // 3. Draw probes (LOD if many or performance mode)
+                const useLod = performanceMode.checked || probes.length > LOD_PROBE_THRESHOLD;
+                if (useLod) {
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imageData.data;
+                    const paletteLength = Math.max(1, colonizerColors.length);
+                    for (let i = 0; i < probes.length; i++) {
+                        const p = probes[i];
+                        const x = p.x | 0; const y = p.y | 0;
+                        if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) continue;
+                        const idx = (y * canvas.width + x) * 4;
+                        // Write a bright pixel with colonizer color
+                        // Convert hsl(...) to rgb via canvas once per color and cache? For now, let canvas do it.
+                        // Use a simple per-pixel color by drawing a tiny diamond via direct RGBA set: default to purple-ish if missing.
+                        // We'll approximate by using the stroke color precomputed via canvas state is costly; instead default to light indigo.
+                        data[idx] = 180; data[idx + 1] = 190; data[idx + 2] = 255; data[idx + 3] = 255;
+                    }
+                    ctx.putImageData(imageData, 0, 0);
+                    return;
+                }
+
+                // 3b. Detailed diamonds batched by color
+                const colorBuckets = [];
+                const paletteLength = Math.max(1, colonizerColors.length);
+                for (let c = 0; c < paletteLength; c++) colorBuckets[c] = [];
                 for (let i = 0; i < probes.length; i++) {
                     const p = probes[i];
-                    const color = colonizerColors[p.colonizerId % colonizerColors.length] || '#4f46e5';
-                    let arr = colorBuckets.get(color);
-                    if (!arr) { arr = []; colorBuckets.set(color, arr); }
-                    arr.push(p);
+                    const idx = p.colonizerId % paletteLength;
+                    (colorBuckets[idx]).push(p);
                 }
-                colorBuckets.forEach((plist, color) => {
+                for (let c = 0; c < colorBuckets.length; c++) {
+                    const plist = colorBuckets[c];
+                    if (plist.length === 0) continue;
+                    const color = colonizerColors[c] || '#4f46e5';
                     const r = PROBE_DRAW_SIZE / 2;
                     ctx.lineWidth = 1.25;
                     ctx.lineJoin = 'round';
@@ -629,7 +677,7 @@
                     // Colored stroke to indicate colonizer
                     ctx.strokeStyle = color;
                     ctx.stroke();
-                });
+                }
             }
 
 
@@ -651,7 +699,7 @@
                 }
             }
 
-            function gameLoop() {
+            function gameLoop(nowMs) {
                 if (!simulationRunning) return;
                 updateCachedLoopParams();
                 timeElapsed += TIME_STEP_YEARS;
@@ -666,10 +714,14 @@
                 probes = probes.filter(probe => !probe.isDecommissioned);
                 probesLost += initialProbeCount - probes.length;
                 
-                draw();
-                updateStats();
+                // Draw throttle
+                if (!lastDrawTimeMs || (nowMs - lastDrawTimeMs) >= FRAME_INTERVAL_MS) {
+                    lastDrawTimeMs = nowMs;
+                    draw();
+                    updateStats();
+                }
                 
-                if (loopCounter % CHART_UPDATE_INTERVAL === 0) updateChart();
+                if (showChart.checked && (loopCounter % CHART_UPDATE_INTERVAL === 0)) updateChart();
                 animationFrameId = requestAnimationFrame(gameLoop);
             }
 
@@ -732,6 +784,9 @@
                 if (simulationRunning) gameLoop();
             });
             resetBtn.addEventListener('click', resetSimulation);
+            showChart.addEventListener('change', () => {
+                chartContainer.style.display = showChart.checked ? '' : 'none';
+            });
             starSlider.addEventListener('input', (e) => {
                 starValue.textContent = e.target.value;
                 resetSimulation();
