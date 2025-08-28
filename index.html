@@ -366,6 +366,55 @@
                 return foundIndex === -1 ? null : stars[foundIndex];
             }
 
+            // Compute a frontier priority: lower is closer to the nearest unclaimed star
+            function computeFrontierPriority(star) {
+                const target = findClosestUnclaimedStar(star.x, star.y);
+                if (!target) return Infinity;
+                const dx = target.x - star.x;
+                const dy = target.y - star.y;
+                return dx * dx + dy * dy;
+            }
+
+            // Find the closest already visited (colonized) star to a given position
+            function findClosestVisitedStar(x, y) {
+                const startCol = Math.min(gridCols - 1, Math.max(0, Math.floor(x / gridCellSize)));
+                const startRow = Math.min(gridRows - 1, Math.max(0, Math.floor(y / gridCellSize)));
+                let foundIndex = -1;
+                let bestDistSq = Infinity;
+                const maxRadius = Math.max(gridCols, gridRows);
+
+                for (let radius = 0; radius <= maxRadius; radius++) {
+                    let anyInRing = false;
+                    const minCol = Math.max(0, startCol - radius);
+                    const maxCol = Math.min(gridCols - 1, startCol + radius);
+                    const minRow = Math.max(0, startRow - radius);
+                    const maxRow = Math.min(gridRows - 1, startRow + radius);
+
+                    for (let row = minRow; row <= maxRow; row++) {
+                        for (let col = minCol; col <= maxCol; col++) {
+                            if (radius > 0 && row > minRow && row < maxRow && col > minCol && col < maxCol) continue;
+                            const bucket = gridBuckets[row * gridCols + col];
+                            if (bucket.length === 0) continue;
+                            anyInRing = true;
+                            for (let k = 0; k < bucket.length; k++) {
+                                const idx = bucket[k];
+                                const star = stars[idx];
+                                if (!star.visited) continue;
+                                const dx = star.x - x;
+                                const dy = star.y - y;
+                                const d2 = dx * dx + dy * dy;
+                                if (d2 < bestDistSq) {
+                                    bestDistSq = d2;
+                                    foundIndex = idx;
+                                }
+                            }
+                        }
+                    }
+                    if (foundIndex !== -1 || !anyInRing) break;
+                }
+                return foundIndex === -1 ? null : stars[foundIndex];
+            }
+
             // Event-driven production scheduler
             class MinHeap {
                 constructor(compare) { this.compare = compare; this.items = []; }
@@ -393,10 +442,16 @@
                 }
             }
 
-            const productionQueue = new MinHeap((a, b) => a.time - b.time);
+            const productionQueue = new MinHeap((a, b) => {
+                if (a.time !== b.time) return a.time - b.time;
+                const ap = (typeof a.priority === 'number') ? a.priority : Infinity;
+                const bp = (typeof b.priority === 'number') ? b.priority : Infinity;
+                return ap - bp;
+            });
             function scheduleNextProductionForStar(star) {
                 const period = parseInt(replicationSlider.value);
-                productionQueue.push({ star, time: timeElapsed + period });
+                const priority = computeFrontierPriority(star);
+                productionQueue.push({ star, time: timeElapsed + period, priority });
             }
             function processProductionEvents() {
                 const period = parseInt(replicationSlider.value);
@@ -405,22 +460,31 @@
                     productionQueue.pop();
                     if (item.star.visited) {
                         if (continuousProduction && continuousProduction.checked) {
-                            const hasUnclaimedTarget = findClosestUnclaimedStar(item.star.x, item.star.y);
-                            if (hasUnclaimedTarget) {
-                                probes.push(new Probe(item.star.x, item.star.y, item.star.colonizerId));
+                            const targetCandidate = findClosestUnclaimedStar(item.star.x, item.star.y);
+                            if (targetCandidate) {
+                                const bestSource = findClosestVisitedStar(targetCandidate.x, targetCandidate.y) || item.star;
+                                const sourceColonizerId = typeof bestSource.colonizerId !== 'undefined' ? bestSource.colonizerId : item.star.colonizerId;
+                                probes.push(new Probe(bestSource.x, bestSource.y, sourceColonizerId, targetCandidate));
                             }
                         }
-                        productionQueue.push({ star: item.star, time: timeElapsed + period });
+                        productionQueue.push({ star: item.star, time: timeElapsed + period, priority: computeFrontierPriority(item.star) });
                     }
                     item = productionQueue.peek();
                 }
             }
 
             class Probe {
-                constructor(x, y, colonizerId = null) {
+                constructor(x, y, colonizerId = null, preselectedTarget = null) {
                     this.x = x; this.y = y; this.status = 'seeking';
                     this.targetStar = null; this.replicationTimer = 0;
-                    this.isDecommissioned = false; this.colonizerId = colonizerId; this.findNewTarget();
+                    this.isDecommissioned = false; this.colonizerId = colonizerId;
+                    if (preselectedTarget) {
+                        this.targetStar = preselectedTarget;
+                        this.targetStar.claimed = true;
+                        this.status = 'traveling';
+                    } else {
+                        this.findNewTarget();
+                    }
                 }
 
                 findNewTarget() {
