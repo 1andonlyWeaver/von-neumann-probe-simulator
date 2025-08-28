@@ -72,12 +72,19 @@
                                 <span id="replicationValue" class="font-mono text-indigo-400 w-20 text-center">1000</span>
                             </div>
                         </div>
-                        <!-- Expiration Risk Control -->
+                        <!-- Expiration Risk Controls -->
                         <div>
-                            <label for="expirationSlider" class="block mb-2 text-sm font-medium">Expiration Risk (% per 1k years)</label>
-                             <div class="flex items-center gap-4">
-                                <input id="expirationSlider" type="range" min="0" max="100" step="1" value="5" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
-                                <span id="expirationValue" class="font-mono text-indigo-400 w-20 text-center">5%</span>
+                            <label for="travelExpirationSlider" class="block mb-2 text-sm font-medium">Travel Expiration Risk (% per 100 years)</label>
+                            <div class="flex items-center gap-4">
+                                <input id="travelExpirationSlider" type="range" min="0" max="100" step="1" value="2" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="travelExpirationValue" class="font-mono text-indigo-400 w-20 text-center">2%</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="colonizationExpirationSlider" class="block mb-2 text-sm font-medium">Colonization Expiration Risk (% per 100 years)</label>
+                            <div class="flex items-center gap-4">
+                                <input id="colonizationExpirationSlider" type="range" min="0" max="100" step="1" value="8" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-thumb">
+                                <span id="colonizationExpirationValue" class="font-mono text-indigo-400 w-20 text-center">8%</span>
                             </div>
                         </div>
                         <!-- Initial Colonizers Control -->
@@ -160,8 +167,10 @@
             const speedValue = document.getElementById('speedValue');
             const replicationSlider = document.getElementById('replicationSlider');
             const replicationValue = document.getElementById('replicationValue');
-            const expirationSlider = document.getElementById('expirationSlider');
-            const expirationValue = document.getElementById('expirationValue');
+            const travelExpirationSlider = document.getElementById('travelExpirationSlider');
+            const travelExpirationValue = document.getElementById('travelExpirationValue');
+            const colonizationExpirationSlider = document.getElementById('colonizationExpirationSlider');
+            const colonizationExpirationValue = document.getElementById('colonizationExpirationValue');
             const colonizerSlider = document.getElementById('colonizerSlider');
             const colonizerValue = document.getElementById('colonizerValue');
             const continuousProduction = document.getElementById('continuousProduction');
@@ -425,9 +434,11 @@
                 }
 
                 update() {
-                    const riskPer1kYears = parseInt(expirationSlider.value) / 100;
-                    if (riskPer1kYears > 0) {
-                        const riskPerYear = riskPer1kYears / 1000;
+                    const travelRiskPer100Years = parseInt(travelExpirationSlider.value) / 100;
+                    const colonizeRiskPer100Years = parseInt(colonizationExpirationSlider.value) / 100;
+                    const activeRiskPer100Years = this.status === 'traveling' ? travelRiskPer100Years : colonizeRiskPer100Years;
+                    if (activeRiskPer100Years > 0) {
+                        const riskPerYear = activeRiskPer100Years / 100;
                         const survivalProbability = Math.pow(1 - riskPerYear, TIME_STEP_YEARS);
                         if (Math.random() > survivalProbability) {
                             this.isDecommissioned = true;
@@ -623,7 +634,8 @@
             });
             speedSlider.addEventListener('input', (e) => { speedValue.textContent = `${e.target.value}%`; });
             replicationSlider.addEventListener('input', (e) => { replicationValue.textContent = e.target.value; });
-            expirationSlider.addEventListener('input', (e) => { expirationValue.textContent = `${e.target.value}%`; });
+            travelExpirationSlider.addEventListener('input', (e) => { travelExpirationValue.textContent = `${e.target.value}%`; });
+            colonizationExpirationSlider.addEventListener('input', (e) => { colonizationExpirationValue.textContent = `${e.target.value}%`; });
             // Production cadence adapts automatically via event scheduler; no per-star updates needed here
             window.addEventListener('resize', resetSimulation);
 
@@ -690,7 +702,8 @@
             enableEditableValue(colonizerValue, colonizerSlider, { onChange: (v) => { colonizerValue.textContent = `${v}`; resetSimulation(); } });
             enableEditableValue(speedValue, speedSlider, { suffix: '%', onChange: (v) => { speedValue.textContent = `${v}%`; } });
             enableEditableValue(replicationValue, replicationSlider, { onChange: (v) => { replicationValue.textContent = `${v}`; } });
-            enableEditableValue(expirationValue, expirationSlider, { suffix: '%', onChange: (v) => { expirationValue.textContent = `${v}%`; } });
+            enableEditableValue(travelExpirationValue, travelExpirationSlider, { suffix: '%', onChange: (v) => { travelExpirationValue.textContent = `${v}%`; } });
+            enableEditableValue(colonizationExpirationValue, colonizationExpirationSlider, { suffix: '%', onChange: (v) => { colonizationExpirationValue.textContent = `${v}%`; } });
 
             // --- Initial Call ---
             setupChart();
